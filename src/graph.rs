@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-use itertools::{Itertools, min};
+use itertools::{min, Itertools};
 
 use crate::adj_mat::AdjacencyMatrix;
 use crate::error::Result;
@@ -26,20 +26,20 @@ pub struct Graph {
     // P_c(λ) = {κ ∈ V_c|(κ, λ) ∈ E_c}
     S_c: Vec<HashSet<usize>>,
     // S_c(λ) = {μ ∈ V_c|(λ, μ) ∈ E_c}
-    // NC
-    red_leaders: RefCell<Vec<usize>>,
+    has_cycle: bool,
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum EdgeEffect {
     None,
-    NewEdge(bool),  // is_cycle
+    NewEdge(Option<Vec<usize>>), // is_cycle
 }
 
 impl Graph {
     pub fn new() -> Self {
         Default::default()
     }
+
     pub fn with_capacity(n: usize) -> Self {
         Self {
             M: AdjacencyMatrix::with_capacity(n),
@@ -49,12 +49,14 @@ impl Graph {
             C: Vec::with_capacity(n),
             P_c: Vec::with_capacity(n),
             S_c: Vec::with_capacity(n),
-            red_leaders: RefCell::new(Vec::with_capacity(n)),
+            has_cycle: false,
         }
     }
+
     pub fn count(&self) -> usize {
         self.M.count()
     }
+
     pub fn add_node(&mut self) -> usize {
         let idx = self.M.add_node();
         self.M_star.borrow_mut().add_node();
@@ -68,6 +70,7 @@ impl Graph {
         ensure_len(&mut self.S_c, idx + 1);
         idx
     }
+
     pub fn insert(&mut self, i: usize, j: usize) -> Result<EdgeEffect> {
         if self.M.get(i, j).unwrap() == 1 {
             return Ok(EdgeEffect::None);
@@ -78,28 +81,34 @@ impl Graph {
         let Lj = *self.L.get(j).unwrap();
 
         if Li == Lj {
-            Ok(EdgeEffect::NewEdge(false))
+            Ok(EdgeEffect::NewEdge(None))
         } else {
             let new_cycle = self.M_star.borrow().get(j, i).unwrap() == 1;
             self.P_c.get_mut(Lj).unwrap().insert(Li);
             self.S_c.get_mut(Li).unwrap().insert(Lj);
             for kappa in &self.V_c {
                 let kappa = *kappa;
-                if self.M_star.borrow().get(kappa, i).unwrap() == 1 && self.M_star.borrow().get(kappa, j).unwrap() == 0 {
-                    self.red_leaders.borrow_mut().push(Lj);
-                    self.adapt(kappa);
-                    self.red_leaders.borrow_mut().clear();
+                if self.M_star.borrow().get(kappa, i).unwrap() == 1
+                    && self.M_star.borrow().get(kappa, j).unwrap() == 0
+                {
+                    self.adapt(kappa, Lj);
                 } // R(kappa) is established
             }
             if new_cycle {
+                self.has_cycle = true;
                 self.join_components(j);
+                Ok(EdgeEffect::NewEdge(Some(
+                    self.C.get(*self.L.get(j).unwrap()).unwrap().clone(),
+                )))
+            } else {
+                Ok(EdgeEffect::NewEdge(None))
             }
-            Ok(EdgeEffect::NewEdge(new_cycle))
         }
     }
 
-    fn adapt(&self, kappa: usize) {
-        let mut red_leaders = self.red_leaders.borrow_mut();
+    fn adapt(&self, kappa: usize, first_red: usize) {
+        let mut red_leaders = vec![first_red];
+
         while let Some(lambda) = red_leaders.pop() {
             for (k, l) in self
                 .C
@@ -166,6 +175,40 @@ impl Graph {
         }
         self.V_c.insert(lambda);
     }
+
+    pub fn has_cycle(&self) -> bool {
+        self.has_cycle
+    }
+
+    pub fn SCC(&self, reversed: bool) -> Vec<Vec<usize>> {
+        let adj_list = if reversed { &self.P_c } else { &self.S_c };
+        let mut V_c = self.V_c.clone();
+        let mut adj_list_rev = if reversed {
+            self.S_c.clone()
+        } else {
+            self.P_c.clone()
+        };
+        let mut output = vec![];
+        loop {
+            let in_zero_v = V_c
+                .iter()
+                .filter(|v| adj_list_rev.get(**v).unwrap().is_empty())
+                .copied()
+                .collect_vec();
+            if in_zero_v.is_empty() {
+                break;
+            }
+
+            for kappa in in_zero_v {
+                V_c.remove(&kappa);
+                output.push(self.C.get(kappa).unwrap().clone());
+                for mu in adj_list.get(kappa).unwrap().iter() {
+                    adj_list_rev.get_mut(*mu).unwrap().remove(&kappa);
+                }
+            }
+        }
+        output
+    }
 }
 
 #[cfg(test)]
@@ -182,20 +225,35 @@ mod tests {
             assert_eq!(g.add_node(), i);
             assert_eq!(g.M_star.borrow().get(i, i).unwrap(), 1);
         }
-        assert_eq!(g.insert(1, 2).unwrap(), EdgeEffect::NewEdge(false));
-        assert_eq!(g.insert(2, 4).unwrap(), EdgeEffect::NewEdge(false));
-        assert_eq!(g.insert(4, 3).unwrap(), EdgeEffect::NewEdge(false));
-        assert_eq!(g.insert(3, 1).unwrap(), EdgeEffect::NewEdge(true));
-        assert_eq!(g.insert(5, 6).unwrap(), EdgeEffect::NewEdge(false));
-        assert_eq!(g.insert(6, 7).unwrap(), EdgeEffect::NewEdge(false));
-        assert_eq!(g.insert(7, 5).unwrap(), EdgeEffect::NewEdge(true));
-        assert_eq!(g.insert(4, 5).unwrap(), EdgeEffect::NewEdge(false));
-        assert_eq!(g.insert(2, 3).unwrap(), EdgeEffect::NewEdge(false));
-        assert_eq!(g.insert(7, 8).unwrap(), EdgeEffect::NewEdge(false));
-        assert_eq!(g.insert(8, 9).unwrap(), EdgeEffect::NewEdge(false));
-        assert_eq!(g.insert(9, 7).unwrap(), EdgeEffect::NewEdge(true));
-        assert_eq!(g.insert(7, 0).unwrap(), EdgeEffect::NewEdge(false));
-        assert_eq!(g.insert(4, 0).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(1, 2).unwrap(), EdgeEffect::NewEdge(None));
+        assert_eq!(g.insert(2, 4).unwrap(), EdgeEffect::NewEdge(None));
+        assert_eq!(g.insert(4, 3).unwrap(), EdgeEffect::NewEdge(None));
+        let r = g.insert(3, 1).unwrap();
+        if let EdgeEffect::NewEdge(Some(l)) = r {
+            assert_eq!(l.iter().sorted().collect_vec(), [&1, &2, &3, &4]);
+        } else {
+            assert!(false);
+        }
+        assert_eq!(g.insert(5, 6).unwrap(), EdgeEffect::NewEdge(None));
+        assert_eq!(g.insert(6, 7).unwrap(), EdgeEffect::NewEdge(None));
+        let r = g.insert(7, 5).unwrap();
+        if let EdgeEffect::NewEdge(Some(l)) = r {
+            assert_eq!(l.iter().sorted().collect_vec(), [&5, &6, &7]);
+        } else {
+            assert!(false);
+        }
+        assert_eq!(g.insert(4, 5).unwrap(), EdgeEffect::NewEdge(None));
+        assert_eq!(g.insert(2, 3).unwrap(), EdgeEffect::NewEdge(None));
+        assert_eq!(g.insert(7, 8).unwrap(), EdgeEffect::NewEdge(None));
+        assert_eq!(g.insert(8, 9).unwrap(), EdgeEffect::NewEdge(None));
+        let r = g.insert(9, 7).unwrap();
+        if let EdgeEffect::NewEdge(Some(l)) = r {
+            assert_eq!(l.iter().sorted().collect_vec(), [&5, &6, &7, &8, &9]);
+        } else {
+            assert!(false);
+        }
+        assert_eq!(g.insert(7, 0).unwrap(), EdgeEffect::NewEdge(None));
+        assert_eq!(g.insert(4, 0).unwrap(), EdgeEffect::NewEdge(None));
         assert_eq!(g.insert(4, 3).unwrap(), EdgeEffect::None);
 
         assert_eq!(g.V_c.iter().sorted().collect_vec(), [&0, &1, &5]);
@@ -218,6 +276,39 @@ mod tests {
                 .map(|v| (v, g.S_c.get(*v).unwrap().iter().sorted().collect_vec()))
                 .collect_vec(),
             vec![(&0, vec![]), (&1, vec![&0, &5]), (&5, vec![&0])]
+        );
+        assert_eq!(
+            g.SCC(false)
+                .iter()
+                .map(|s| s.iter().sorted().collect_vec())
+                .collect_vec(),
+            vec![vec![&1, &2, &3, &4], vec![&5, &6, &7, &8, &9], vec![&0]]
+        );
+        assert_eq!(
+            g.SCC(true)
+                .iter()
+                .map(|s| s.iter().sorted().collect_vec())
+                .collect_vec(),
+            vec![vec![&0], vec![&5, &6, &7, &8, &9], vec![&1, &2, &3, &4]]
+        );
+        assert_eq!(
+            g.M.edges().collect_vec(),
+            vec![
+                (1, 2),
+                (2, 3),
+                (2, 4),
+                (3, 1),
+                (4, 0),
+                (4, 3),
+                (4, 5),
+                (5, 6),
+                (6, 7),
+                (7, 0),
+                (7, 5),
+                (7, 8),
+                (8, 9),
+                (9, 7)
+            ]
         );
     }
 }

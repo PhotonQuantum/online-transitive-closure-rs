@@ -15,12 +15,14 @@ pub struct AdjacencyMatrix {
 #[derive(Debug, Clone)]
 pub struct Edges<'a> {
     source: Enumerate<Iter<'a, usize>>,
+    capacity: usize
 }
 
 impl<'a> From<&'a AdjacencyMatrix> for Edges<'a> {
     fn from(mat: &'a AdjacencyMatrix) -> Self {
         Self {
             source: mat.mat.iter().enumerate(),
+            capacity: mat.capacity
         }
     }
 }
@@ -31,7 +33,7 @@ impl Iterator for Edges<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         self.source
             .find(|(_, weight)| **weight > 0)
-            .map(|(idx, weight)| (idx, *weight))
+            .map(|(idx, _)| AdjacencyMatrix::to_pos(idx, self.capacity))
     }
 }
 
@@ -112,7 +114,8 @@ impl AdjacencyMatrix {
     }
 
     fn extend_matrix(&mut self, new_capacity: usize, exact: bool) {
-        self.capacity = Self::extend_flat_square_matrix(&mut self.mat, self.capacity, new_capacity, exact);
+        self.capacity =
+            Self::extend_flat_square_matrix(&mut self.mat, self.capacity, new_capacity, exact);
     }
 
     // adapted from petgraph
@@ -163,8 +166,8 @@ impl AdjacencyMatrix {
         row * self.capacity + col
     }
 
-    fn to_pos(&self, idx: usize) -> (usize, usize) {
-        (idx / self.capacity, idx % self.capacity)
+    fn to_pos(idx: usize, width: usize) -> (usize, usize) {
+        (idx / width, idx % width)
     }
 }
 
