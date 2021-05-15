@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use itertools::{min, Itertools};
 
-use crate::adj_mat::AdjacencyMatrix;
+use crate::adj_mat::{AdjacencyMatrix, Edges};
 use crate::error::Result;
 use crate::utils::ensure_len;
 
@@ -209,6 +209,10 @@ impl Graph {
         }
         output
     }
+
+    pub fn edges(&self) -> Edges {
+        self.M.edges()
+    }
 }
 
 #[cfg(test)]
@@ -292,7 +296,7 @@ mod tests {
             vec![vec![&0], vec![&5, &6, &7, &8, &9], vec![&1, &2, &3, &4]]
         );
         assert_eq!(
-            g.M.edges().collect_vec(),
+            g.edges().collect_vec(),
             vec![
                 (1, 2),
                 (2, 3),
