@@ -71,8 +71,19 @@ impl Graph {
         idx
     }
 
+    pub fn is_form_cycle(&self, i: usize, j: usize) -> Result<bool> {
+        let Li = *self.L.get(i).unwrap();
+        let Lj = *self.L.get(j).unwrap();
+
+        Ok(if Li == Lj {
+            false
+        } else {
+            self.M_star.borrow().get(j, i).unwrap() == 1
+        })
+    }
+
     pub fn insert(&mut self, i: usize, j: usize) -> Result<EdgeEffect> {
-        if self.M.get(i, j).unwrap() == 1 {
+        if self.M.get(i, j)? == 1 {
             return Ok(EdgeEffect::None);
         }
 
