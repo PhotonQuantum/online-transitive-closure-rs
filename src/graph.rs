@@ -37,6 +37,12 @@ pub struct Graph {
     red_leaders: RefCell<IndexSet<usize>>,
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum EdgeEffect {
+    None,
+    NewEdge(bool),  // is_cycle
+}
+
 impl Graph {
     pub fn new() -> Self {
         Default::default()
@@ -79,9 +85,9 @@ impl Graph {
         ensure_len(&mut self.e_c, idx + 1);
         idx
     }
-    pub fn insert(&mut self, i: usize, j: usize) -> Result<()> {
+    pub fn insert(&mut self, i: usize, j: usize) -> Result<EdgeEffect> {
         if self.M.get(i, j).unwrap() == 1 {
-            return Ok(());
+            return Ok(EdgeEffect::None);
         }
 
         *self.M.get_mut(i, j).unwrap() = 1;
@@ -97,6 +103,7 @@ impl Graph {
                     *self.N.borrow_mut().get_mut(k, j).unwrap() += 1;
                 }
             }
+            Ok(EdgeEffect::NewEdge(false))
         } else {
             let new_cycle = self.M_star.borrow().get(j, i).unwrap() == 1;
             *self.M_c.get_mut(Li, Lj).unwrap() = 1;
@@ -118,8 +125,8 @@ impl Graph {
             if new_cycle {
                 self.join_components(j);
             }
+            Ok(EdgeEffect::NewEdge(new_cycle))
         }
-        Ok(())
     }
 
     pub fn adapt(&self, kappa: usize) {
@@ -230,7 +237,7 @@ impl Graph {
 mod tests {
     use itertools::Itertools;
 
-    use crate::graph::Graph;
+    use crate::graph::{Graph, EdgeEffect};
 
     #[test]
     fn adj_graph_works() {
@@ -240,20 +247,21 @@ mod tests {
             assert_eq!(g.add_node(), i);
             assert_eq!(g.M_star.borrow().get(i, i).unwrap(), 1);
         }
-        g.insert(1, 2).unwrap();
-        g.insert(2, 4).unwrap();
-        g.insert(4, 3).unwrap();
-        g.insert(3, 1).unwrap();
-        g.insert(5, 6).unwrap();
-        g.insert(6, 7).unwrap();
-        g.insert(7, 5).unwrap();
-        g.insert(4, 5).unwrap();
-        g.insert(2, 3).unwrap();
-        g.insert(7, 8).unwrap();
-        g.insert(8, 9).unwrap();
-        g.insert(9, 7).unwrap();
-        g.insert(7, 0).unwrap();
-        g.insert(4, 0).unwrap();
+        assert_eq!(g.insert(1, 2).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(2, 4).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(4, 3).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(3, 1).unwrap(), EdgeEffect::NewEdge(true));
+        assert_eq!(g.insert(5, 6).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(6, 7).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(7, 5).unwrap(), EdgeEffect::NewEdge(true));
+        assert_eq!(g.insert(4, 5).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(2, 3).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(7, 8).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(8, 9).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(9, 7).unwrap(), EdgeEffect::NewEdge(true));
+        assert_eq!(g.insert(7, 0).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(4, 0).unwrap(), EdgeEffect::NewEdge(false));
+        assert_eq!(g.insert(4, 3).unwrap(), EdgeEffect::None);
 
         assert_eq!(g.V_c.iter().sorted().collect_vec(), [&0, &1, &5]);
         assert_eq!(
