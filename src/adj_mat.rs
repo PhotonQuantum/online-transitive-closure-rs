@@ -85,7 +85,7 @@ impl AdjacencyMatrix {
 
     pub fn get(&self, i: usize, j: usize) -> Result<usize> {
         if i >= self.nodes_count || j >= self.nodes_count {
-            return Err(GraphError::InvalidIndex);
+            return Err(Error::InvalidIndex);
         }
         let pos = self.to_linear_pos(i, j);
         Ok(*self.mat.get(pos).unwrap())
@@ -98,7 +98,7 @@ impl AdjacencyMatrix {
 
     pub fn get_mut(&mut self, i: usize, j: usize) -> Result<&mut usize> {
         if i >= self.nodes_count || j >= self.nodes_count {
-            return Err(GraphError::InvalidIndex);
+            return Err(Error::InvalidIndex);
         }
         let pos = self.to_linear_pos(i, j);
         Ok(self.mat.get_mut(pos).unwrap())
